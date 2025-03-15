@@ -172,3 +172,27 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# .gitignore
+
+# Byte-compiled / cached / etc.
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.venv_*
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Data files (if large)
+data/*.jsonl
+data/*.csv
+
+# OS or Editor Files
+.DS_Store
+.vscode/
