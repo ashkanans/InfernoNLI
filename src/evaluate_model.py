@@ -1,4 +1,4 @@
-# src/evaluate_model.py
+# src/evaluate_baseline.py
 
 import os
 import json
@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
+# Reuse the same label mapping as in Issue 3
 LABEL_MAPPING = {
     "ENTAILMENT": 0,
     "CONTRADICTION": 1,
@@ -28,7 +29,7 @@ class NLIDataset(Dataset):
         premise = item["premise"]
         hypothesis = item["hypothesis"]
         label_str = item["label"]
-        label = LABEL_MAPPING[label_str]
+        label_id = LABEL_MAPPING[label_str]
 
         encoding = self.tokenizer(
             premise,
@@ -41,10 +42,13 @@ class NLIDataset(Dataset):
         return {
             "input_ids": encoding["input_ids"].squeeze(),
             "attention_mask": encoding["attention_mask"].squeeze(),
-            "labels": torch.tensor(label, dtype=torch.long)
+            "labels": torch.tensor(label_id, dtype=torch.long)
         }
 
 def load_jsonl(path):
+    """
+    Loads a JSON lines file and returns a list of dictionaries.
+    """
     data = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -52,10 +56,14 @@ def load_jsonl(path):
     return data
 
 def compute_metrics(pred):
+    """
+    Custom metrics for HuggingFace Trainer.
+    """
     logits, labels = pred
-    predictions = logits.argmax(-1)
-    acc = accuracy_score(labels, predictions)
-    precision, recall, f1, _ = precision_recall_fscore_support(labels, predictions, average="macro")
+    preds = logits.argmax(axis=-1)
+
+    acc = accuracy_score(labels, preds)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average="macro")
     return {
         "accuracy": acc,
         "precision": precision,
@@ -66,40 +74,38 @@ def compute_metrics(pred):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_dir", type=str, required=True,
-                        help="Path to the directory of the saved model (e.g., models/baseline).")
-    parser.add_argument("--test_path", type=str, required=True,
-                        help="Path to the test JSONL file.")
+                        help="Path to the directory containing the trained model.")
+    parser.add_argument("--eval_file", type=str, required=True,
+                        help="Path to the dev/test JSONL file for evaluation.")
     parser.add_argument("--batch_size", type=int, default=16,
                         help="Evaluation batch size.")
     parser.add_argument("--max_length", type=int, default=128,
-                        help="Max token length for inputs.")
+                        help="Max token length for premise/hypothesis.")
     args = parser.parse_args()
 
-    # 1. Load the tokenizer and model from the saved directory
-    tokenizer = AutoTokenizer.from_pretrained("models/baseline")
-    model = AutoModelForSequenceClassification.from_pretrained("models/baseline")
+    # 1. Load the model and tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(args.model_dir)
 
-    # 2. Prepare the test dataset
-    test_data = load_jsonl(args.test_path)
-    test_dataset = NLIDataset(test_data, tokenizer, max_length=args.max_length)
+    # 2. Load evaluation data
+    eval_data = load_jsonl(args.eval_file)
+    eval_dataset = NLIDataset(eval_data, tokenizer, max_length=args.max_length)
 
-    # 3. Setup a Trainer for evaluation
-    # We only need minimal TrainingArguments for evaluation. 
-    # The output_dir can be a temporary directory if you like.
+    # 3. Create a Trainer (only for evaluation)
     eval_args = TrainingArguments(
-        output_dir="eval_output",
+        output_dir="eval_output",       # Temporary directory to store logs
         per_device_eval_batch_size=args.batch_size,
     )
     trainer = Trainer(
         model=model,
         args=eval_args,
-        eval_dataset=test_dataset,
+        eval_dataset=eval_dataset,
         compute_metrics=compute_metrics
     )
 
     # 4. Evaluate
-    test_results = trainer.evaluate()
-    print("Test Results:", test_results)
+    eval_results = trainer.evaluate()
+    print(f"\nEvaluation Results on {args.eval_file}:\n", eval_results)
 
 if __name__ == "__main__":
     main()
